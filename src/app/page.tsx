@@ -548,17 +548,11 @@ const normalizeMonthlyBudgetItems = (
 
 const cloneAppState = (value: AppState): AppState => JSON.parse(JSON.stringify(value)) as AppState;
 
-const areStatesEqual = (left: AppState, right: AppState) => JSON.stringify(left) === JSON.stringify(right);
-
 const readBrowserStorage = (key: string) => {
   try {
     return localStorage.getItem(key);
   } catch {
-    try {
-      return sessionStorage.getItem(key);
-    } catch {
-      return null;
-    }
+    return null;
   }
 };
 
@@ -567,12 +561,7 @@ const writeBrowserStorage = (key: string, value: string) => {
     localStorage.setItem(key, value);
     return true;
   } catch {
-    try {
-      sessionStorage.setItem(key, value);
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 };
 
@@ -587,6 +576,18 @@ const getScopedStorageKey = (baseKey: string) => {
 
 const persistBrowserSnapshot = (nextState: AppState, nextBudgetAudit: BudgetAuditEntry[]) => {
   const serializedState = JSON.stringify(nextState);
+  let auditWasCleared = false;
+
+  if (!writeBrowserStorage(STORAGE_KEY, serializedState)) {
+    if (writeBrowserStorage(BUDGET_AUDIT_STORAGE_KEY, "[]")) {
+      auditWasCleared = true;
+    }
+
+    if (!writeBrowserStorage(STORAGE_KEY, serializedState)) {
+      return null;
+    }
+  }
+
   const trimSteps = [
     nextBudgetAudit.length,
     ...AUDIT_STORAGE_TRIM_STEPS.filter((limit) => limit < nextBudgetAudit.length)
@@ -596,15 +597,13 @@ const persistBrowserSnapshot = (nextState: AppState, nextBudgetAudit: BudgetAudi
     const trimmedAudit = nextBudgetAudit.slice(0, limit);
     const serializedAudit = JSON.stringify(trimmedAudit);
 
-    if (!writeBrowserStorage(BUDGET_AUDIT_STORAGE_KEY, serializedAudit)) {
-      continue;
+    if (writeBrowserStorage(BUDGET_AUDIT_STORAGE_KEY, serializedAudit)) {
+      return trimmedAudit;
     }
+  }
 
-    if (!writeBrowserStorage(STORAGE_KEY, serializedState)) {
-      continue;
-    }
-
-    return trimmedAudit;
+  if (auditWasCleared) {
+    return [];
   }
 
   return null;
@@ -1840,22 +1839,33 @@ export default function Home() {
     BUDGET_AUDIT_STORAGE_KEY = getScopedStorageKey(BUDGET_AUDIT_STORAGE_KEY_BASE);
 
     try {
-      const raw = readBrowserStorage(STORAGE_KEY) ?? readBrowserStorage(STORAGE_KEY_BASE);
-      if (raw) {
-        const parsed = JSON.parse(raw) as AppState;
+      const rawScopedState = readBrowserStorage(STORAGE_KEY);
+      const rawLegacyState = rawScopedState ? null : readBrowserStorage(STORAGE_KEY_BASE);
+      const rawState = rawScopedState ?? rawLegacyState;
+      if (rawState) {
+        const parsed = JSON.parse(rawState) as AppState;
         const normalized = normalizeStateDates(parsed);
         latestStateRef.current = normalized;
         setState(normalized);
       }
 
-      const rawAudit =
-        readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY) ?? readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY_BASE);
+      const rawScopedAudit = readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY);
+      const rawLegacyAudit = rawScopedAudit ? null : readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY_BASE);
+      const rawAudit = rawScopedAudit ?? rawLegacyAudit;
       if (rawAudit) {
         const parsedAudit = JSON.parse(rawAudit) as BudgetAuditEntry[];
         if (Array.isArray(parsedAudit)) {
           const trimmedAudit = parsedAudit.slice(0, 400);
           latestBudgetAuditRef.current = trimmedAudit;
           setBudgetAudit(trimmedAudit);
+        }
+      }
+
+      if (!rawScopedState && rawLegacyState) {
+        const migratedAudit = persistBrowserSnapshot(latestStateRef.current, latestBudgetAuditRef.current);
+        if (migratedAudit && migratedAudit.length !== latestBudgetAuditRef.current.length) {
+          latestBudgetAuditRef.current = migratedAudit;
+          setBudgetAudit(migratedAudit);
         }
       }
     } catch {
@@ -1953,6 +1963,7 @@ export default function Home() {
     setBudgetAudit((previous) => {
       const next = [entry, ...previous].slice(0, 400);
       latestBudgetAuditRef.current = next;
+      persistBrowserSnapshot(latestStateRef.current, next);
       return next;
     });
   };
@@ -1970,9 +1981,6 @@ export default function Home() {
   const updateAppState = (updater: (previous: AppState) => AppState) => {
     setState((previous) => {
       const next = updater(previous);
-      if (areStatesEqual(previous, next)) {
-        return previous;
-      }
 
       undoStack.current.push(cloneAppState(previous));
       if (undoStack.current.length > HISTORY_LIMIT) {
@@ -1980,6 +1988,7 @@ export default function Home() {
       }
       redoStack.current = [];
       latestStateRef.current = next;
+      persistBrowserSnapshot(next, latestBudgetAuditRef.current);
       setHistoryVersion((value) => value + 1);
       return next;
     });
@@ -1997,6 +2006,7 @@ export default function Home() {
         redoStack.current.shift();
       }
       latestStateRef.current = previousSnapshot;
+      persistBrowserSnapshot(previousSnapshot, latestBudgetAuditRef.current);
       return previousSnapshot;
     });
     setHistoryVersion((value) => value + 1);
@@ -2014,6 +2024,7 @@ export default function Home() {
         undoStack.current.shift();
       }
       latestStateRef.current = nextSnapshot;
+      persistBrowserSnapshot(nextSnapshot, latestBudgetAuditRef.current);
       return nextSnapshot;
     });
     setHistoryVersion((value) => value + 1);
