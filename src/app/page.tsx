@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { spreadsheetSeed } from "@/data/spreadsheetSeed";
 
 type AmountRow = {
   id: string;
@@ -109,8 +108,8 @@ type BudgetAuditEntry = {
   after: string;
 };
 
-const STORAGE_KEY_BASE = "finance-compass-v3";
-const BUDGET_AUDIT_STORAGE_KEY_BASE = "finance-compass-budget-audit-v2";
+const STORAGE_KEY_BASE = "finance-compass-v6";
+const BUDGET_AUDIT_STORAGE_KEY_BASE = "finance-compass-budget-audit-v5";
 let STORAGE_KEY = STORAGE_KEY_BASE;
 let BUDGET_AUDIT_STORAGE_KEY = BUDGET_AUDIT_STORAGE_KEY_BASE;
 const HISTORY_LIMIT = 150;
@@ -357,51 +356,24 @@ const createEmptySavingsBucket = (): SavingsBucket => ({
   marketChanges: []
 });
 
-const buildBucketFromSeed = (
-  bucket: (typeof spreadsheetSeed)["savings"]["primary"],
-  prefix: string
-): SavingsBucket => ({
-  location: bucket.location,
-  cashStash: bucket.cashStash,
-  regularDeposits: bucket.regularDeposits.map((row, index) => ({
-    id: `${prefix}-regular-${index + 1}`,
-    date: normalizeDateToUk(row.date),
-    amount: row.amount,
-    target: row.target
-  })),
-  additionalDeposits: bucket.additionalDeposits.map((row, index) => ({
-    id: `${prefix}-extra-${index + 1}`,
-    date: normalizeDateToUk(row.date),
-    amount: row.amount,
-    note: row.note
-  })),
-  withdrawals: bucket.withdrawals.map((row, index) => ({
-    id: `${prefix}-withdraw-${index + 1}`,
-    date: normalizeDateToUk(row.date),
-    amount: row.amount,
-    reason: row.reason
-  })),
-  marketChanges: []
-});
-
 const buildDefaultSavingsSections = (): SavingsSection[] => [
   {
     id: "savings-section-primary",
     title: "Primary savings",
     tab: "savings",
-    bucket: buildBucketFromSeed(spreadsheetSeed.savings.primary, "primary")
+    bucket: createEmptySavingsBucket()
   },
   {
     id: "savings-section-secondary",
     title: "Secondary savings",
     tab: "savings",
-    bucket: buildBucketFromSeed(spreadsheetSeed.savings.secondary, "secondary")
+    bucket: createEmptySavingsBucket()
   },
   {
     id: "savings-section-investment-fund",
     title: "Investments tracker",
     tab: "investments",
-    bucket: buildBucketFromSeed(spreadsheetSeed.savings.investmentFund, "fund")
+    bucket: createEmptySavingsBucket()
   }
 ];
 
@@ -410,31 +382,31 @@ const buildDefaultMonthlyBudgetItems = (): MonthlyBudgetItem[] => [
     id: "monthly-budget-1",
     label: "Monthly spending budget (£)",
     category: "spending",
-    monthlyAmount: spreadsheetSeed.budget.monthlySpendingBudget
+    monthlyAmount: 0
   },
   {
     id: "monthly-budget-2",
     label: "Monthly primary savings amount (£)",
     category: "saving",
-    monthlyAmount: spreadsheetSeed.budget.monthlyPrimarySavings
+    monthlyAmount: 0
   },
   {
     id: "monthly-budget-3",
     label: "Monthly secondary savings amount (£)",
     category: "saving",
-    monthlyAmount: spreadsheetSeed.budget.monthlySecondarySavings
+    monthlyAmount: 0
   },
   {
     id: "monthly-budget-4",
     label: "Monthly investment budget (£)",
     category: "investing",
-    monthlyAmount: spreadsheetSeed.budget.monthlyInvestmentBudget
+    monthlyAmount: 0
   },
   {
     id: "monthly-budget-5",
     label: "Monthly pension contribution (£)",
     category: "investing",
-    monthlyAmount: spreadsheetSeed.budget.monthlyPensionContribution
+    monthlyAmount: 0
   }
 ];
 
@@ -506,7 +478,7 @@ const normalizeMonthlyBudgetItems = (
         category: "spending",
         monthlyAmount: Number.isFinite(legacyValues.monthlySpendingBudget ?? NaN)
           ? legacyValues.monthlySpendingBudget ?? 0
-          : spreadsheetSeed.budget.monthlySpendingBudget
+          : 0
       },
       {
         id: "monthly-budget-2",
@@ -514,7 +486,7 @@ const normalizeMonthlyBudgetItems = (
         category: "saving",
         monthlyAmount: Number.isFinite(legacyValues.monthlyPrimarySavings ?? NaN)
           ? legacyValues.monthlyPrimarySavings ?? 0
-          : spreadsheetSeed.budget.monthlyPrimarySavings
+          : 0
       },
       {
         id: "monthly-budget-3",
@@ -522,7 +494,7 @@ const normalizeMonthlyBudgetItems = (
         category: "saving",
         monthlyAmount: Number.isFinite(legacyValues.monthlySecondarySavings ?? NaN)
           ? legacyValues.monthlySecondarySavings ?? 0
-          : spreadsheetSeed.budget.monthlySecondarySavings
+          : 0
       },
       {
         id: "monthly-budget-4",
@@ -530,7 +502,7 @@ const normalizeMonthlyBudgetItems = (
         category: "investing",
         monthlyAmount: Number.isFinite(legacyValues.monthlyInvestmentBudget ?? NaN)
           ? legacyValues.monthlyInvestmentBudget ?? 0
-          : spreadsheetSeed.budget.monthlyInvestmentBudget
+          : 0
       },
       {
         id: "monthly-budget-5",
@@ -538,7 +510,7 @@ const normalizeMonthlyBudgetItems = (
         category: "investing",
         monthlyAmount: Number.isFinite(legacyValues.monthlyPensionContribution ?? NaN)
           ? legacyValues.monthlyPensionContribution ?? 0
-          : spreadsheetSeed.budget.monthlyPensionContribution
+          : 0
       }
     ];
   }
@@ -611,36 +583,17 @@ const persistBrowserSnapshot = (nextState: AppState, nextBudgetAudit: BudgetAudi
 
 const buildInitialState = (): AppState => ({
   budget: {
-    monthlyExpenses: spreadsheetSeed.budget.monthlyExpenses.map((row, index) => ({
-      id: `monthly-expense-${index + 1}`,
-      label: row.label,
-      date: "",
-      amount: row.amount
-    })),
-    yearlyExpenses: spreadsheetSeed.budget.yearlyExpenses.map((row, index) => ({
-      id: `yearly-expense-${index + 1}`,
-      label: row.label,
-      date: "",
-      amount: row.amount
-    })),
+    monthlyExpenses: [],
+    yearlyExpenses: [],
     monthlyBudgetItems: buildDefaultMonthlyBudgetItems(),
-    incomeStreams: spreadsheetSeed.budget.incomeStreams.map((row, index) => ({
-      id: `income-stream-${index + 1}`,
-      label: row.label,
-      monthlyAmount: row.monthlyAmount
-    }))
+    incomeStreams: []
   },
   savings: {
     sections: buildDefaultSavingsSections()
   },
   investments: {
-    startDate: normalizeDateToUk(spreadsheetSeed.investments.startDate),
-    holdings: spreadsheetSeed.investments.holdings.map((row, index) => ({
-      id: `holding-${index + 1}`,
-      name: row.name,
-      location: row.location,
-      amount: row.amount
-    })),
+    startDate: "",
+    holdings: [],
     marketChanges: []
   }
 });
