@@ -108,8 +108,8 @@ type BudgetAuditEntry = {
   after: string;
 };
 
-const STORAGE_KEY_BASE = "finance-compass-v6";
-const BUDGET_AUDIT_STORAGE_KEY_BASE = "finance-compass-budget-audit-v5";
+const STORAGE_KEY_BASE = "finance-compass-v7";
+const BUDGET_AUDIT_STORAGE_KEY_BASE = "finance-compass-budget-audit-v6";
 let STORAGE_KEY = STORAGE_KEY_BASE;
 let BUDGET_AUDIT_STORAGE_KEY = BUDGET_AUDIT_STORAGE_KEY_BASE;
 const HISTORY_LIMIT = 150;
@@ -356,59 +356,9 @@ const createEmptySavingsBucket = (): SavingsBucket => ({
   marketChanges: []
 });
 
-const buildDefaultSavingsSections = (): SavingsSection[] => [
-  {
-    id: "savings-section-primary",
-    title: "Primary savings",
-    tab: "savings",
-    bucket: createEmptySavingsBucket()
-  },
-  {
-    id: "savings-section-secondary",
-    title: "Secondary savings",
-    tab: "savings",
-    bucket: createEmptySavingsBucket()
-  },
-  {
-    id: "savings-section-investment-fund",
-    title: "Investments tracker",
-    tab: "investments",
-    bucket: createEmptySavingsBucket()
-  }
-];
+const buildDefaultSavingsSections = (): SavingsSection[] => [];
 
-const buildDefaultMonthlyBudgetItems = (): MonthlyBudgetItem[] => [
-  {
-    id: "monthly-budget-1",
-    label: "Monthly spending budget (£)",
-    category: "spending",
-    monthlyAmount: 0
-  },
-  {
-    id: "monthly-budget-2",
-    label: "Monthly primary savings amount (£)",
-    category: "saving",
-    monthlyAmount: 0
-  },
-  {
-    id: "monthly-budget-3",
-    label: "Monthly secondary savings amount (£)",
-    category: "saving",
-    monthlyAmount: 0
-  },
-  {
-    id: "monthly-budget-4",
-    label: "Monthly investment budget (£)",
-    category: "investing",
-    monthlyAmount: 0
-  },
-  {
-    id: "monthly-budget-5",
-    label: "Monthly pension contribution (£)",
-    category: "investing",
-    monthlyAmount: 0
-  }
-];
+const buildDefaultMonthlyBudgetItems = (): MonthlyBudgetItem[] => [];
 
 const normalizeMonthlyBudgetCategory = (
   categoryRaw: unknown,
@@ -471,48 +421,7 @@ const normalizeMonthlyBudgetItems = (
   }
 
   if (legacyValues) {
-    return [
-      {
-        id: "monthly-budget-1",
-        label: "Monthly spending budget (£)",
-        category: "spending",
-        monthlyAmount: Number.isFinite(legacyValues.monthlySpendingBudget ?? NaN)
-          ? legacyValues.monthlySpendingBudget ?? 0
-          : 0
-      },
-      {
-        id: "monthly-budget-2",
-        label: "Monthly primary savings amount (£)",
-        category: "saving",
-        monthlyAmount: Number.isFinite(legacyValues.monthlyPrimarySavings ?? NaN)
-          ? legacyValues.monthlyPrimarySavings ?? 0
-          : 0
-      },
-      {
-        id: "monthly-budget-3",
-        label: "Monthly secondary savings amount (£)",
-        category: "saving",
-        monthlyAmount: Number.isFinite(legacyValues.monthlySecondarySavings ?? NaN)
-          ? legacyValues.monthlySecondarySavings ?? 0
-          : 0
-      },
-      {
-        id: "monthly-budget-4",
-        label: "Monthly investment budget (£)",
-        category: "investing",
-        monthlyAmount: Number.isFinite(legacyValues.monthlyInvestmentBudget ?? NaN)
-          ? legacyValues.monthlyInvestmentBudget ?? 0
-          : 0
-      },
-      {
-        id: "monthly-budget-5",
-        label: "Monthly pension contribution (£)",
-        category: "investing",
-        monthlyAmount: Number.isFinite(legacyValues.monthlyPensionContribution ?? NaN)
-          ? legacyValues.monthlyPensionContribution ?? 0
-          : 0
-      }
-    ];
+    return [];
   }
 
   return buildDefaultMonthlyBudgetItems();
@@ -1792,9 +1701,7 @@ export default function Home() {
     BUDGET_AUDIT_STORAGE_KEY = getScopedStorageKey(BUDGET_AUDIT_STORAGE_KEY_BASE);
 
     try {
-      const rawScopedState = readBrowserStorage(STORAGE_KEY);
-      const rawLegacyState = rawScopedState ? null : readBrowserStorage(STORAGE_KEY_BASE);
-      const rawState = rawScopedState ?? rawLegacyState;
+      const rawState = readBrowserStorage(STORAGE_KEY);
       if (rawState) {
         const parsed = JSON.parse(rawState) as AppState;
         const normalized = normalizeStateDates(parsed);
@@ -1802,23 +1709,13 @@ export default function Home() {
         setState(normalized);
       }
 
-      const rawScopedAudit = readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY);
-      const rawLegacyAudit = rawScopedAudit ? null : readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY_BASE);
-      const rawAudit = rawScopedAudit ?? rawLegacyAudit;
+      const rawAudit = readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY);
       if (rawAudit) {
         const parsedAudit = JSON.parse(rawAudit) as BudgetAuditEntry[];
         if (Array.isArray(parsedAudit)) {
           const trimmedAudit = parsedAudit.slice(0, 400);
           latestBudgetAuditRef.current = trimmedAudit;
           setBudgetAudit(trimmedAudit);
-        }
-      }
-
-      if (!rawScopedState && rawLegacyState) {
-        const migratedAudit = persistBrowserSnapshot(latestStateRef.current, latestBudgetAuditRef.current);
-        if (migratedAudit && migratedAudit.length !== latestBudgetAuditRef.current.length) {
-          latestBudgetAuditRef.current = migratedAudit;
-          setBudgetAudit(migratedAudit);
         }
       }
     } catch {
