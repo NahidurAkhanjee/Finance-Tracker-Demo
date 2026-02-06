@@ -112,6 +112,7 @@ type BudgetAuditEntry = {
 const STORAGE_KEY = "finance-compass-v3";
 const BUDGET_AUDIT_STORAGE_KEY = "finance-compass-budget-audit-v2";
 const HISTORY_LIMIT = 150;
+const AUDIT_STORAGE_TRIM_STEPS = [300, 200, 150, 100, 50, 25, 0];
 
 type LegacyBudgetValues = {
   monthlySpendingBudget?: number;
@@ -546,6 +547,57 @@ const normalizeMonthlyBudgetItems = (
 const cloneAppState = (value: AppState): AppState => JSON.parse(JSON.stringify(value)) as AppState;
 
 const areStatesEqual = (left: AppState, right: AppState) => JSON.stringify(left) === JSON.stringify(right);
+
+const readBrowserStorage = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+};
+
+const writeBrowserStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    try {
+      sessionStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+
+const persistBrowserSnapshot = (nextState: AppState, nextBudgetAudit: BudgetAuditEntry[]) => {
+  const serializedState = JSON.stringify(nextState);
+  const trimSteps = [
+    nextBudgetAudit.length,
+    ...AUDIT_STORAGE_TRIM_STEPS.filter((limit) => limit < nextBudgetAudit.length)
+  ];
+
+  for (const limit of trimSteps) {
+    const trimmedAudit = nextBudgetAudit.slice(0, limit);
+    const serializedAudit = JSON.stringify(trimmedAudit);
+
+    if (!writeBrowserStorage(BUDGET_AUDIT_STORAGE_KEY, serializedAudit)) {
+      continue;
+    }
+
+    if (!writeBrowserStorage(STORAGE_KEY, serializedState)) {
+      continue;
+    }
+
+    return trimmedAudit;
+  }
+
+  return null;
+};
 
 const buildInitialState = (): AppState => ({
   budget: {
@@ -1769,16 +1821,18 @@ export default function Home() {
   const budgetEditStartValues = useRef<Record<string, string>>({});
   const undoStack = useRef<AppState[]>([]);
   const redoStack = useRef<AppState[]>([]);
+  const latestStateRef = useRef(state);
+  const latestBudgetAuditRef = useRef(budgetAudit);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = readBrowserStorage(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as AppState;
         setState(normalizeStateDates(parsed));
       }
 
-      const rawAudit = localStorage.getItem(BUDGET_AUDIT_STORAGE_KEY);
+      const rawAudit = readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY);
       if (rawAudit) {
         const parsedAudit = JSON.parse(rawAudit) as BudgetAuditEntry[];
         if (Array.isArray(parsedAudit)) {
@@ -1793,20 +1847,49 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!hasLoaded) {
-      return;
-    }
+    latestStateRef.current = state;
+  }, [state]);
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state, hasLoaded]);
+  useEffect(() => {
+    latestBudgetAuditRef.current = budgetAudit;
+  }, [budgetAudit]);
 
   useEffect(() => {
     if (!hasLoaded) {
       return;
     }
 
-    localStorage.setItem(BUDGET_AUDIT_STORAGE_KEY, JSON.stringify(budgetAudit));
-  }, [budgetAudit, hasLoaded]);
+    const savedAudit = persistBrowserSnapshot(state, budgetAudit);
+    if (savedAudit && savedAudit.length !== budgetAudit.length) {
+      setBudgetAudit(savedAudit);
+    }
+  }, [state, budgetAudit, hasLoaded]);
+
+  useEffect(() => {
+    if (!hasLoaded) {
+      return;
+    }
+
+    const flushToStorage = () => {
+      persistBrowserSnapshot(latestStateRef.current, latestBudgetAuditRef.current);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushToStorage();
+      }
+    };
+
+    window.addEventListener("beforeunload", flushToStorage);
+    window.addEventListener("pagehide", flushToStorage);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", flushToStorage);
+      window.removeEventListener("pagehide", flushToStorage);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [hasLoaded]);
 
   const formatAuditValue = (value: string | number | undefined) => {
     if (value === undefined) {
