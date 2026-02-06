@@ -109,8 +109,10 @@ type BudgetAuditEntry = {
   after: string;
 };
 
-const STORAGE_KEY = "finance-compass-v3";
-const BUDGET_AUDIT_STORAGE_KEY = "finance-compass-budget-audit-v2";
+const STORAGE_KEY_BASE = "finance-compass-v3";
+const BUDGET_AUDIT_STORAGE_KEY_BASE = "finance-compass-budget-audit-v2";
+let STORAGE_KEY = STORAGE_KEY_BASE;
+let BUDGET_AUDIT_STORAGE_KEY = BUDGET_AUDIT_STORAGE_KEY_BASE;
 const HISTORY_LIMIT = 150;
 const AUDIT_STORAGE_TRIM_STEPS = [300, 200, 150, 100, 50, 25, 0];
 
@@ -572,6 +574,15 @@ const writeBrowserStorage = (key: string, value: string) => {
       return false;
     }
   }
+};
+
+const getScopedStorageKey = (baseKey: string) => {
+  if (typeof window === "undefined") {
+    return baseKey;
+  }
+
+  const pathScope = window.location.pathname.split("/").filter(Boolean)[0] ?? "root";
+  return baseKey + ":" + window.location.hostname + ":" + pathScope;
 };
 
 const persistBrowserSnapshot = (nextState: AppState, nextBudgetAudit: BudgetAuditEntry[]) => {
@@ -1825,18 +1836,26 @@ export default function Home() {
   const latestBudgetAuditRef = useRef(budgetAudit);
 
   useEffect(() => {
+    STORAGE_KEY = getScopedStorageKey(STORAGE_KEY_BASE);
+    BUDGET_AUDIT_STORAGE_KEY = getScopedStorageKey(BUDGET_AUDIT_STORAGE_KEY_BASE);
+
     try {
-      const raw = readBrowserStorage(STORAGE_KEY);
+      const raw = readBrowserStorage(STORAGE_KEY) ?? readBrowserStorage(STORAGE_KEY_BASE);
       if (raw) {
         const parsed = JSON.parse(raw) as AppState;
-        setState(normalizeStateDates(parsed));
+        const normalized = normalizeStateDates(parsed);
+        latestStateRef.current = normalized;
+        setState(normalized);
       }
 
-      const rawAudit = readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY);
+      const rawAudit =
+        readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY) ?? readBrowserStorage(BUDGET_AUDIT_STORAGE_KEY_BASE);
       if (rawAudit) {
         const parsedAudit = JSON.parse(rawAudit) as BudgetAuditEntry[];
         if (Array.isArray(parsedAudit)) {
-          setBudgetAudit(parsedAudit);
+          const trimmedAudit = parsedAudit.slice(0, 400);
+          latestBudgetAuditRef.current = trimmedAudit;
+          setBudgetAudit(trimmedAudit);
         }
       }
     } catch {
@@ -1861,6 +1880,7 @@ export default function Home() {
 
     const savedAudit = persistBrowserSnapshot(state, budgetAudit);
     if (savedAudit && savedAudit.length !== budgetAudit.length) {
+      latestBudgetAuditRef.current = savedAudit;
       setBudgetAudit(savedAudit);
     }
   }, [state, budgetAudit, hasLoaded]);
@@ -1930,7 +1950,11 @@ export default function Home() {
       after: formatAuditValue(after)
     };
 
-    setBudgetAudit((previous) => [entry, ...previous].slice(0, 400));
+    setBudgetAudit((previous) => {
+      const next = [entry, ...previous].slice(0, 400);
+      latestBudgetAuditRef.current = next;
+      return next;
+    });
   };
 
   const rememberBudgetEditStart = (key: string, value: string | number) => {
@@ -1955,6 +1979,7 @@ export default function Home() {
         undoStack.current.shift();
       }
       redoStack.current = [];
+      latestStateRef.current = next;
       setHistoryVersion((value) => value + 1);
       return next;
     });
@@ -1971,6 +1996,7 @@ export default function Home() {
       if (redoStack.current.length > HISTORY_LIMIT) {
         redoStack.current.shift();
       }
+      latestStateRef.current = previousSnapshot;
       return previousSnapshot;
     });
     setHistoryVersion((value) => value + 1);
@@ -1987,6 +2013,7 @@ export default function Home() {
       if (undoStack.current.length > HISTORY_LIMIT) {
         undoStack.current.shift();
       }
+      latestStateRef.current = nextSnapshot;
       return nextSnapshot;
     });
     setHistoryVersion((value) => value + 1);
